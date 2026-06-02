@@ -123,7 +123,7 @@ function animateCount(element, targetValue, duration = 550) {
     requestAnimationFrame(step);
 }
 
-function renderTableSkeleton(tbody, columnCount, rows = 4) {
+function renderTableSkeleton(tbody, columnCount, rows = 1) {
     if (!tbody) return;
 
     const skeletonRows = Array.from({ length: rows }, () => {
@@ -229,8 +229,9 @@ function showPage(page) {
     document.getElementById('admin-dashboard').classList.remove('active');
     document.getElementById('student-dashboard').classList.remove('active');
     
+    // Detener QR si no estamos en student-login
     if (html5QrCode && page !== 'student-login') {
-        detenerQRLogin();
+        detenerQRLogin(); // No esperar, es una acción de limpieza
     }
     
     // Cerrar todos los modales al cambiar de página
@@ -656,10 +657,27 @@ async function iniciarQRLogin() {
     container.style.display = 'block';
     cancelBtn.style.display = 'inline-block';
     
+    // Pequeña pausa para asegurar que el DOM está actualizado
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
     try {
         if (!html5QrCode) {
             html5QrCode = new Html5Qrcode("reader-student");
+        } else {
+            // Si ya existe, intenta limpiarlo primero
+            try {
+                await html5QrCode.stop();
+                await html5QrCode.clear();
+            } catch (e) {
+                // Ignorar errores de limpieza
+            }
         }
+        
+        // Solicitar explícitamente permisos de cámara
+        const constraints = { video: { facingMode: "environment" } };
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        // Detener el stream inmediatamente, solo queríamos verificar permisos
+        stream.getTracks().forEach(track => track.stop());
         
         await html5QrCode.start(
             { facingMode: "environment" },
@@ -681,21 +699,39 @@ async function iniciarQRLogin() {
             },
             (errorMessage) => {}
         );
+        showToast('Camara iniciada. Apunta al código QR.', 'success');
     } catch (err) {
-        console.error("Error al iniciar escaner QR:", err);
-        showToast('Error al acceder a la camara. Asegurate de dar permisos.', 'error');
+        console.error("Error al iniciar escáner QR:", err);
+        
+        // Mensajes de error específicos
+        if (err.name === 'NotAllowedError') {
+            showToast('❌ Permiso de cámara denegado. Actívalo en configuración del navegador.', 'error');
+        } else if (err.name === 'NotFoundError') {
+            showToast('❌ No se encontró ninguna cámara en el dispositivo.', 'error');
+        } else if (err.name === 'NotReadableError') {
+            showToast('❌ No se puede acceder a la cámara. Intenta desconectarla y conectarla de nuevo.', 'error');
+        } else if (err.name === 'SecurityError') {
+            showToast('⚠️ Error de seguridad. Asegúrate de estar en HTTPS o localhost.', 'error');
+        } else {
+            showToast('❌ Error al acceder a la cámara: ' + err.message, 'error');
+        }
+        
         container.style.display = 'none';
-        placeholder.style.display = 'block';
+        placeholder.style.display = 'flex';
+        cancelBtn.style.display = 'none';
     }
 }
 
 async function detenerQRLogin() {
     if (html5QrCode) {
         try {
-            await html5QrCode.stop();
+            if (html5QrCode.isScanning) {
+                await html5QrCode.stop();
+            }
             await html5QrCode.clear();
+            html5QrCode = null;
         } catch (e) {
-            console.warn("Error al detener escaner:", e);
+            console.warn("Error al detener escáner:", e);
         }
     }
     document.getElementById('qr-reader-container-student').style.display = 'none';
@@ -730,6 +766,27 @@ function generarQRAlumno() {
         } else {
             showToast('QR generado exitosamente', 'success');
         }
+    });
+}
+
+// Función auxiliar para generar QR base64 (usada al guardar)
+async function generarQRBase64(nc, fecha) {
+    return new Promise((resolve) => {
+        const dataQR = JSON.stringify({ nc: nc, fn: fecha });
+        const canvas = document.createElement('canvas');
+        
+        QRCode.toCanvas(canvas, dataQR, { 
+            width: 180, 
+            margin: 1,
+            color: { dark: '#1e40af', light: '#ffffff' }
+        }, function(error) {
+            if (error) {
+                console.error('Error generando QR base64:', error);
+                resolve(null);
+            } else {
+                resolve(canvas.toDataURL('image/png'));
+            }
+        });
     });
 }
 
@@ -1294,20 +1351,30 @@ function buscarHistorialAcademico() {
 async function handleStudentSubmit(e) {
     e.preventDefault();
     const form = e.target;
-    setFormLoadingState(form, true, 'Guardando...');
+    setFormLoadingState(form, true, 'Generando QR y guardando...');
     const formData = new FormData(e.target);
     const id = formData.get('id');
 
+    const numeroControl = formData.get('numero_control');
+    const fechaNacimiento = formData.get('fecha_nacimiento');
+
+    // Generar QR automáticamente
+    let qrBase64 = null;
+    if (numeroControl && fechaNacimiento) {
+        qrBase64 = await generarQRBase64(numeroControl, fechaNacimiento);
+    }
+
     const payload = {
-        numero_control: formData.get('numero_control'),
+        numero_control: numeroControl,
         nombre_completo: formData.get('nombre_completo'),
-        fecha_nacimiento: formData.get('fecha_nacimiento'),
+        fecha_nacimiento: fechaNacimiento,
         email: formData.get('email') || null,
         telefono: formData.get('telefono') || null,
         direccion: formData.get('direccion') || null,
         seccion: formData.get('seccion') || null,
         especialidad_id: formData.get('especialidad_id') || null,
-        semestre_actual: Number(formData.get('semestre_actual')) || 1
+        semestre_actual: Number(formData.get('semestre_actual')) || 1,
+        qr_acceso: qrBase64
     };
 
     try {
@@ -1326,7 +1393,7 @@ async function handleStudentSubmit(e) {
         closeModal('student-modal');
         await loadStudents();
         loadAdminDashboard();
-        showToast(id ? 'Alumno actualizado' : 'Alumno agregado', 'success');
+        showToast(id ? 'Alumno actualizado con QR' : 'Alumno agregado con QR generado', 'success');
     } catch (error) {
         showToast(error.message || 'No se pudo guardar el alumno', 'error');
     } finally {

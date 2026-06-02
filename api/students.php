@@ -37,14 +37,15 @@ try {
         $seccion = ($input['seccion'] ?? null) ?: null;
         $especialidadId = ($input['especialidad_id'] ?? null) !== null && $input['especialidad_id'] !== '' ? (int)$input['especialidad_id'] : null;
         $semestre = (int)($input['semestre_actual'] ?? 1);
+        $qrAcceso = ($input['qr_acceso'] ?? null) ?: null;
 
         if ($numeroControl === '' || $nombreCompleto === '' || $fechaNacimiento === '') {
             jsonResponse(['success' => false, 'message' => 'Faltan datos obligatorios del alumno'], 422);
         }
 
         $stmt = $pdo->prepare(
-            'INSERT INTO alumnos (numero_control, nombre_completo, fecha_nacimiento, email, telefono, direccion, seccion, especialidad_id, semestre_actual)
-             VALUES (:numero_control, :nombre_completo, :fecha_nacimiento, :email, :telefono, :direccion, :seccion, :especialidad_id, :semestre_actual)'
+            'INSERT INTO alumnos (numero_control, nombre_completo, fecha_nacimiento, email, telefono, direccion, seccion, especialidad_id, semestre_actual, qr_acceso)
+             VALUES (:numero_control, :nombre_completo, :fecha_nacimiento, :email, :telefono, :direccion, :seccion, :especialidad_id, :semestre_actual, :qr_acceso)'
         );
 
         $stmt->execute([
@@ -57,6 +58,7 @@ try {
             'seccion' => $seccion,
             'especialidad_id' => $especialidadId,
             'semestre_actual' => max(1, min(6, $semestre)),
+            'qr_acceso' => $qrAcceso,
         ]);
 
         jsonResponse(['success' => true, 'message' => 'Alumno creado correctamente', 'id' => (int)$pdo->lastInsertId()], 201);
@@ -79,6 +81,7 @@ try {
         $seccion = ($input['seccion'] ?? null) ?: null;
         $especialidadId = ($input['especialidad_id'] ?? null) !== null && $input['especialidad_id'] !== '' ? (int)$input['especialidad_id'] : null;
         $semestre = (int)($input['semestre_actual'] ?? 1);
+        $qrAcceso = ($input['qr_acceso'] ?? null) ?: null;
 
         if ($numeroControl === '' || $nombreCompleto === '' || $fechaNacimiento === '') {
             jsonResponse(['success' => false, 'message' => 'Faltan datos obligatorios del alumno'], 422);
@@ -94,7 +97,8 @@ try {
                  direccion = :direccion,
                  seccion = :seccion,
                  especialidad_id = :especialidad_id,
-                 semestre_actual = :semestre_actual
+                 semestre_actual = :semestre_actual,
+                 qr_acceso = :qr_acceso
              WHERE id = :id AND activo = 1'
         );
 
@@ -108,6 +112,7 @@ try {
             'seccion' => $seccion,
             'especialidad_id' => $especialidadId,
             'semestre_actual' => max(1, min(6, $semestre)),
+            'qr_acceso' => $qrAcceso,
             'id' => $id,
         ]);
 
